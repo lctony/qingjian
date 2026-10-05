@@ -8,7 +8,7 @@ use async_openai::types::chat::{
     ChatCompletionRequestUserMessage, CreateChatCompletionRequestArgs,
     CreateChatCompletionResponse, FinishReason, ReasoningEffort, ResponseFormat,
 };
-use qingjian_core::PredictionRequest;
+use qingjian_core::{PredictionKind, PredictionRequest};
 use reqwest::header::{HeaderMap, HeaderValue};
 
 use crate::config::PredictConfig;
@@ -17,6 +17,16 @@ use crate::prompt::{self, Reply};
 
 /// 联想回复的 token 上限：几条短句足够，防止模型长篇大论。
 const MAX_TOKENS: u32 = 200;
+
+/// 翻译的超时下限：长段落的译文要生成几百上千个 token，联想用的几秒不够；
+/// 配置里的 `timeout_ms` 更长时以配置为准。
+const TRANSLATE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// 翻译回复的 token 上限按原文长度给：固定 [`MAX_TOKENS`] 译长段落会把 JSON 截断，
+/// 解析不出正文等于没翻。原文一字约两个 token 足够中译英、英译中，再留 256 的 JSON 包装余量，封顶防跑偏。
+fn translate_tokens(text: &str) -> u32 {
+    (text.chars().count() as u32 * 2 + 256).min(4096)
+}
 
 /// 采样温度：联想要稳，不要花。
 const TEMPERATURE: f32 = 0.3;
@@ -63,8 +73,16 @@ impl ChatClient {
     pub async fn complete(&self, request: &PredictionRequest) -> Result<Reply, PredictError> {
         let user = prompt::user_prompt(request);
         tracing::debug!(sequence = request.sequence, %user, "联想请求");
+        let (max_tokens, timeout) = if request.kind == PredictionKind::Translate {
+            (
+                translate_tokens(&request.text),
+                self.timeout.max(TRANSLATE_TIMEOUT),
+            )
+        } else {
+            (MAX_TOKENS, self.timeout)
+        };
         let content = self
-            .chat(prompt::system_prompt(request), &user, MAX_TOKENS)
+            .exchange(prompt::system_prompt(request), &user, max_tokens, timeout)
             .await?;
         Ok(prompt::parse_reply(&content, request))
     }
@@ -75,6 +93,17 @@ impl ChatClient {
         system: &str,
         user: &str,
         max_tokens: u32,
+    ) -> Result<String, PredictError> {
+        self.exchange(system, user, max_tokens, self.timeout).await
+    }
+
+    /// 同 [`Self::chat`]，超时由调用方定（翻译长段落要等得久些）。
+    async fn exchange(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+        timeout: Duration,
     ) -> Result<String, PredictError> {
         let messages: Vec<ChatCompletionRequestMessage> = vec![
             ChatCompletionRequestSystemMessage::from(system).into(),
@@ -94,9 +123,9 @@ impl ChatClient {
             self.thinking_switch.disable(&mut body);
         }
         let raw: serde_json::Value =
-            tokio::time::timeout(self.timeout, self.client.chat().create_byot(body))
+            tokio::time::timeout(timeout, self.client.chat().create_byot(body))
                 .await
-                .map_err(|_| PredictError::Timeout(self.timeout.as_millis() as u64))??;
+                .map_err(|_| PredictError::Timeout(timeout.as_millis() as u64))??;
         let response: CreateChatCompletionResponse = serde_json::from_value(raw.clone())?;
         let cut_off = response
             .choices
@@ -218,6 +247,13 @@ fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn translate_budget_scales_with_the_source_and_stops_growing() {
+        assert_eq!(translate_tokens("短句"), 260);
+        assert_eq!(translate_tokens(&"字".repeat(2000)), 4096);
+        assert_eq!(translate_tokens(&"x".repeat(5000)), 4096);
+    }
 
     #[test]
     fn reasoning_effort_parses_known_values_and_ignores_the_rest() {

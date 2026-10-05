@@ -457,7 +457,7 @@ CC-CEDICT 表（`dict-convert cedict`）保留为备用来源，覆盖面广但�
   没配到的 Router 回 Passthrough。删候选的那句反馈（「已删除…」/「没什么可删」）随下一帧的 `Frame::notice` 下发，自绘候选窗画在拼音行下方、
   显示到下一次按键（`dispatch/key/shortcut.rs` 填、`handle_key` 开头清；对齐 macOS 画在拼音行右侧的短提示）。
   **翻译选中文字**（`[shortcut] translate_selection`，缺省 Ctrl+Alt+T）：不在组句、云服务开着时按下它，Server 回 `RequestSelection`
-  （替代那次按键的常规结果），DLL 起一个**异步只读编辑会话**（`com/edit/selection.rs`，`GetSelection` + `GetText` 读选中文本、上限 500 字、`GetTextExt` 量屏幕矩形）
+  （替代那次按键的常规结果），DLL 起一个**异步只读编辑会话**（`com/edit/selection.rs`，`GetSelection` + `GetText` 读选中文本、上限 2000 字、`GetTextExt` 量屏幕矩形）
   回 `Selection { text, rect }`；Server 走 Core 的 `request_translation`（`PredictionKind::Translate`，双向，译文走 `sentence`），
   在**自绘候选窗**里以选区矩形为锚显示单条译文（先「翻译中…」，云端回来再换），评审态吃走所有键：回车 / 空格接受、Esc 保留原文、其余键放弃并交回应用。
   替换选区不另加协议——接受时 Server 把译文当 `commit` 回给 DLL，DLL 无活动组句时 `InsertTextAtSelection` 正好替换当前选区。DLL 用 `Shared::translating` 标志让评审期吃键、轮询定时器照常拉云端译文、失焦收窗。

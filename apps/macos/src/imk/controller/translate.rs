@@ -21,7 +21,9 @@ impl QingjianInputController {
             let anchor = client.caret_rect();
             host::with(|h| {
                 h.show_notice(
-                    "没有选中的文字，或这个应用不支持读取选区（最多 500 字）",
+                    &format!(
+                        "没有选中的文字，或这个应用不支持读取选区（最多 {MAX_TRANSLATE_CHARS} 字）"
+                    ),
                     anchor,
                 )
             });

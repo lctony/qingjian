@@ -16,7 +16,7 @@ use crate::com::log::log;
 use crate::com::service::SharedClient;
 
 /// 原文字符上限（与 macOS 壳一致），超过就不译，避免整篇误触。
-const MAX_TRANSLATE_CHARS: usize = 500;
+const MAX_TRANSLATE_CHARS: usize = 2000;
 
 #[implement(ITfEditSession)]
 pub(crate) struct SelectionSession {
