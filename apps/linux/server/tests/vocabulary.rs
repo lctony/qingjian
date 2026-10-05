@@ -3,11 +3,17 @@ use qingjian_core::Engine;
 use qingjian_dictionary::Dictionary;
 use qingjian_learning::VocabularyBook;
 use qingjian_linux_server::{Router, RouterConfig};
+use qingjian_platform::ShortcutConfig;
 use qingjian_platform::protocol::{
     ClientMessage, Frame, KeyEvent, KeyModifiers, PROTOCOL_VERSION, ServerMessage, SessionId,
 };
 use qingjian_translate::Glossary;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// 平台缺省的译词修饰键（Windows 是 Ctrl——Alt + 数字被系统菜单截走；别处是 Option / Alt）。
+fn translate_chord() -> KeyModifiers {
+    KeyModifiers::from(ShortcutConfig::default().translation_keys().0)
+}
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -73,32 +79,14 @@ fn private_vocabulary_book_stays_empty_for_selection_and_translation_shortcut() 
         Some("你好")
     );
     type_text(&mut router, 1, "nihao");
-    let shortcut = key(
-        &mut router,
-        1,
-        b'1' as u32,
-        Some('1'),
-        KeyModifiers {
-            alt: true,
-            ..KeyModifiers::default()
-        },
-    );
+    let shortcut = key(&mut router, 1, b'1' as u32, Some('1'), translate_chord());
     assert_eq!(shortcut.0.as_deref(), Some("hello"));
     router.flush_learning();
     assert!(!vocabulary_path.exists());
 
     open(&mut router, 2, false);
     type_text(&mut router, 2, "nihao");
-    let normal_shortcut = key(
-        &mut router,
-        2,
-        b'1' as u32,
-        Some('1'),
-        KeyModifiers {
-            alt: true,
-            ..KeyModifiers::default()
-        },
-    );
+    let normal_shortcut = key(&mut router, 2, b'1' as u32, Some('1'), translate_chord());
     assert_eq!(normal_shortcut.0.as_deref(), Some("hello"));
     router.flush_learning();
     let saved = std::fs::read_to_string(&vocabulary_path).unwrap();
